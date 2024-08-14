@@ -640,26 +640,22 @@ typedef enum {
  * Data types
  *----------------------------------------------------------------------------*/
 
-/* A redis object, that is a type able to hold a string / list / set */
+/* redis对象，是用来保存 字符串，列表，集合的一种类型 */
 
-/* The actual Redis Object */
+/* 实际的 Redis 对象 */
 #define OBJ_STRING 0    /* String object. */
 #define OBJ_LIST 1      /* List object. */
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
 #define OBJ_HASH 4      /* Hash object. */
 
-/* The "module" object type is a special one that signals that the object
- * is one directly managed by a Redis module. In this case the value points
- * to a moduleValue struct, which contains the object value (which is only
- * handled by the module itself) and the RedisModuleType struct which lists
- * function pointers in order to serialize, deserialize, AOF-rewrite and
- * free the object.
+/* 模块对象类型是一种特殊的类型，意味着这个对象是一个直接由REDIS模块管理的。
+ * 在这种情况下，这个值指向一个包含对象值的模块值结构(只能由模块本身处理)
+ * 和这个redis模块类型结构 RedisModuleType，
+ * RedisModuleType 列出了为了序列化，反序列化，AOF重写和释放对象的函数指针。
  *
- * Inside the RDB file, module types are encoded as OBJ_MODULE followed
- * by a 64 bit module type ID, which has a 54 bits module-specific signature
- * in order to dispatch the loading to the right module, plus a 10 bits
- * encoding version. */
+ * 在RDB文件中，模块类型都被编码为OBJ_MODULE类型，尾随着一个64比特的模块类型ID,
+ * 由54bit模块特定签名决定分配真确的模块方法去加载，外加一个10比特的编码版本 */
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 
@@ -852,13 +848,24 @@ typedef struct RedisModuleDigest {
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    unsigned type:4;  /* 对象的类型，包含字符串对象、列表对象、哈希对象、
+                       * 集合对象、有序集合对象等 */
+    unsigned encoding:4;   /* 编码方式，表示 ptr 指向的数据类型的具体数据结构，
+                            * 即这个对象使用了什么数据结构作为底层保存数据。
+                            * 同一个对象使用不同编码实现，其内存占用存在明显差异，
+                            * 内部编码对内存优化非常重要。 */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+                          /* 需要根据不同的淘汰算法来决定，如果使用LRU,那么就是
+                           * 对象最后一次被访问的时间，(和全局lru_clock相关)，
+                           * 或者LFU数据(最低8位表示访问频率，
+                           * 同时最高16位表示访问时间) */
+    int refcount; /* 表示引用计数，由于 C 语言并不具备内存回收功能，Redis 在
+                   * 自己的对象系统中添加了这个属性，当一个对象的引用计数为0时，
+                   * 表示该对象已经不被任何对象引用，可以进行垃圾回收了。 */
+    void *ptr; /* 对象的指针，指向实际存储对象数据。根据对象的类型和编码不同，
+                * ptr 可能指向 String、Lists、Hashes 等具体的数据结构, */
 } robj;
 
 /* The a string name for an object's type as listed above
@@ -920,16 +927,23 @@ typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
-    dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
-    dict *ready_keys;           /* Blocked keys that received a PUSH */
-    dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
-    int id;                     /* Database ID */
-    long long avg_ttl;          /* Average TTL, just for stats */
-    unsigned long expires_cursor; /* Cursor of the active expire cycle. */
-    list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    clusterSlotToKeyMapping *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
+    dict *dict;                 /* 存储field-value pairs 的字典 */
+    dict *expires;              /* 每个key的过期时间 */
+    dict *blocking_keys;        /* 当客户端使用 BLPOP 命令列表元素时，会把 key
+                                 * 写到 blocking_keys 中，value 是被阳塞的客户端 */
+    dict *ready_keys;           /* 当下一次收到 PUSH 命令时，先检查 blocking_keys
+                                 * 中是否存在阻塞等，如果存在就把 key 放到
+                                 * ready_keys 中，在下一次 Redis 事件处理过
+                                 * ready_keys 数据，并从 blocking_keys 中取出
+                                 * 被阻塞的客户端响应 */
+    dict *watched_keys;         /* 实现 watch 命令、存储 watch 命令的 key */
+    int id;                     /* Redis数据库唯一 ID ，一个 Redis 实例支持
+                                 * 多个数据库， 默认为16个 */
+    long long avg_ttl;          /* 用于统计平均过期时间 */
+    unsigned long expires_cursor; /* 统计过期事件循环执行的次数 */
+    list *defrag_later;         /* 进行碎片整理的 key 列表 */
+    clusterSlotToKeyMapping *slots_to_keys; /* 仅用于集群模式 (db 0)，用于将 slot
+                                 * 映射到 key，存储 key 与哈希桶的映射关系 */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -1452,22 +1466,23 @@ typedef enum childInfoType {
 
 struct redisServer {
     /* General */
-    pid_t pid;                  /* Main process pid. */
-    pthread_t main_thread_id;         /* Main thread id */
-    char *configfile;           /* Absolute config file path, or NULL */
+    pid_t pid;                  /* 主进程 pid. */
+    pthread_t main_thread_id;         /* 主线程 id */
+    char *configfile;           /* redis.conf 配置文件路径 */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
     int config_hz;              /* Configured HZ value. May be different than
-                                   the actual 'hz' field value if dynamic-hz
-                                   is enabled. */
+                                 * the actual 'hz' field value if dynamic-hz
+                                 * is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
-    redisDb *db;
-    dict *commands;             /* Command table */
+    redisDb *db;                /* 存储 field-value pairs 数据的 redisDb 实例 */
+    dict *commands;             /* 当前实例能处理的命令表，key 是命令的名字，
+                                 * value 是 redisCommand 实例 */
     dict *orig_commands;        /* Command table before command renaming. */
-    aeEventLoop *el;
+    aeEventLoop *el;            /* 事件循环处理 */
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
@@ -1480,7 +1495,7 @@ struct redisServer {
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
-    int sentinel_mode;          /* True if this instance is a Sentinel. */
+    int sentinel_mode;          /* True 表示作为哨兵实例启动 */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_exec;                /* Are we inside EXEC? */
@@ -1503,7 +1518,7 @@ struct redisServer {
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
     /* Networking */
-    int port;                   /* TCP listening port */
+    int port;                   /* TCP 监听端口 */
     int tls_port;               /* TLS listening port */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
@@ -1516,12 +1531,12 @@ struct redisServer {
     int sofd;                   /* Unix socket file descriptor */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
     socketFds cfd;              /* Cluster bus listening socket */
-    list *clients;              /* List of active clients */
-    list *clients_to_close;     /* Clients to close asynchronously */
+    list *clients;              /* 连接当前实例的客户端列表 */
+    list *clients_to_close;     /* 待关闭的客户端列表 */
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    client *current_client;     /* Current client executing the command. */
+    client *current_client;     /* 当前执行命令的客户端 */
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket client_mem_usage_buckets[CLIENT_MEM_USAGE_BUCKETS];

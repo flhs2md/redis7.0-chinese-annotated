@@ -6886,8 +6886,13 @@ int main(int argc, char **argv) {
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
 
-    /* To achieve entropy, in case of containers, their time() and getpid() can
-     * be the same. But value of tv_usec is fast enough to make the difference */
+    /* 在容器环境中，‌time()和getpid()函数被用来生成随机数。在容器环境中，‌
+     * 多个容器可能共享宿主机的时钟，‌导致如果直接使用time()函数，‌多个容器
+     * 可能会得到相同的时间戳，‌从而影响随机数的生成。‌通过结合getpid()函数
+     * （‌返回当前进程的进程ID）和tv_usec，‌可以增加随机数的变化范围，‌从而
+     * 提高随机数的熵，‌确保随机数的唯一性和不可预测性。‌这种做法在Redis的
+     * 初始化过程中特别重要，它涉及到密码学安全的随机数生成，‌确保系统的安全性
+     */
     gettimeofday(&tv,NULL);
     srand(time(NULL)^getpid()^tv.tv_usec);
     srandom(time(NULL)^getpid()^tv.tv_usec);
