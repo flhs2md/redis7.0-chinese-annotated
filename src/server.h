@@ -655,7 +655,7 @@ typedef enum {
  * RedisModuleType 列出了为了序列化，反序列化，AOF重写和释放对象的函数指针。
  *
  * 在RDB文件中，模块类型都被编码为OBJ_MODULE类型，尾随着一个64比特的模块类型ID,
- * 由54bit模块特定签名决定分配真确的模块方法去加载，外加一个10比特的编码版本 */
+ * 由54bit模块特定签名决定分配正确的模块方法去加载，外加一个10比特的编码版本 */
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 
@@ -930,7 +930,7 @@ typedef struct redisDb {
     dict *dict;                 /* 存储field-value pairs 的字典 */
     dict *expires;              /* 每个key的过期时间 */
     dict *blocking_keys;        /* 当客户端使用 BLPOP 命令列表元素时，会把 key
-                                 * 写到 blocking_keys 中，value 是被阳塞的客户端 */
+                                 * 写到 blocking_keys 中，value 是被阻塞的客户端 */
     dict *ready_keys;           /* 当下一次收到 PUSH 命令时，先检查 blocking_keys
                                  * 中是否存在阻塞等，如果存在就把 key 放到
                                  * ready_keys 中，在下一次 Redis 事件处理过
